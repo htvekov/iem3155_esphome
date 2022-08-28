@@ -1,6 +1,6 @@
 # ESPHome Modbus configuration for Schneider iEM3155 Energy Meter
 
-This is my production configuration as a full ESPHome configuration example for the iEM3155 Energy Meter.
+This is my production configuration as a complete ESPHome example for the iEM3155 Energy Meter.
 
 Extremely easy, full Home Assistant integration using ESPHome as wireless Modbus node. 
 
