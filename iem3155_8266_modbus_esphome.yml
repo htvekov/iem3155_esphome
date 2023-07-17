@@ -54,8 +54,8 @@ time:
   - platform: homeassistant
     id: esptime
   - platform: sntp
-    # Reset daily counters 1 sec. before midnight
-    # Also forced the command_result id to be updated
+    # Reset daily export counter and daily export base value at midnight
+    # Also force the command_result id to be updated
     # Check could be performed on command_result sensor
     # 0 = valid operation (reset all partial registers - ok)
     # 3000 = invalid operation (reset all partial registers - nok) )
@@ -66,20 +66,30 @@ time:
         days_of_week: MON-SUN
         then:
           - component.update: iem3155_daily
-     
+      - seconds: 00
+        minutes: 00
+        hours: 00
+        days_of_week: MON-SUN
+        then:
+          - component.update: iem3155
+          - lambda: |-
+              id(daily_export_base) = id(total_export).state;
+          - component.update: daily_energy_export_total
+
 binary_sensor:
   - platform: status
     name: "Energy Meter Status"
     id: system_status
- 
+
+#Pins are actually swapped. TX should actually be gpio5, D1 and RX gpio4, D2. 
 uart:
   id: mod_bus
-  tx_pin: 4 # D1
-  rx_pin: 5 # D2
+  tx_pin: 4 # D2
+  rx_pin: 5 # D1
   baud_rate: 19200
   parity: EVEN
   stop_bits: 1
-  #debug:
+  debug:
 
 modbus:
   id: modbus1
@@ -105,13 +115,51 @@ modbus_controller:
     update_interval: never  
     
 sensor:
+  - platform: homeassistant
+    id: total_export
+    entity_id: sensor.energy_export_total
+    internal: true
+
+  - platform: homeassistant
+    id: daily_yield
+    entity_id: sensor.solar_daily_yield
+    internal: true
+    filters:
+      - multiply: 0.001
+
+  - platform: template
+    id: daily_energy_export_total
+    name: "Daily Energy Export Total"
+    device_class: energy
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 3
+    # In lambda check for initial export base value.
+    # Do not calculate daily export value if initial value is set. Instead return -1.
+    lambda: |-
+      if (id(daily_export_base) == -1) {
+        return -1;
+      } else {
+        return (id(total_export).state - id(daily_export_base));
+      }
+    update_interval: 60s
+    
+  - platform: template
+    id: daily_solar_consumption_total
+    name: "Daily Solar Consumption Total"
+    device_class: energy
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 3
+    lambda: |-
+      return (id(daily_yield).state - id(daily_energy_export_total).state);
+    update_interval: 60s
+
   - platform: modbus_controller
     modbus_controller_id: iem3155
     name: "L1 Active Power"
     id: power_l1
     register_type: holding
     address: 3053
-    unit_of_measurement: "W"
+    unit_of_measurement: "Wh"
     device_class: energy
     value_type: FP32
     filters:
@@ -124,7 +172,7 @@ sensor:
     id: power_l2
     register_type: holding
     address: 3055
-    unit_of_measurement: "W"
+    unit_of_measurement: "Wh"
     device_class: energy
     value_type: FP32
     filters:
@@ -137,7 +185,7 @@ sensor:
     id: power_l3
     register_type: holding
     address: 3057
-    unit_of_measurement: "W"
+    unit_of_measurement: "Wh"
     device_class: energy
     value_type: FP32
     filters:
@@ -150,7 +198,7 @@ sensor:
     id: power_total
     register_type: holding
     address: 3059
-    unit_of_measurement: "W"
+    unit_of_measurement: "Wh"
     device_class: energy
     value_type: FP32
     filters:
@@ -163,8 +211,6 @@ sensor:
     id: power_factor
     register_type: holding
     address: 3083
-    unit_of_measurement: ""
-    device_class: energy
     value_type: FP32
     accuracy_decimals: 2
     ## Possible float values from: -2 to +1
@@ -216,8 +262,8 @@ sensor:
     id: daily_energy_import_l1
     register_type: holding
     address: 45111
+    icon: mdi:Numeric1Box
     unit_of_measurement: "kWh"
-    device_class: energy
     value_type: FP32
     accuracy_decimals: 3
     
@@ -227,8 +273,8 @@ sensor:
     id: daily_energy_import_l2
     register_type: holding
     address: 45113
+    icon: mdi:Numeric2Box
     unit_of_measurement: "kWh"
-    device_class: energy
     value_type: FP32
     accuracy_decimals: 3
     
@@ -238,8 +284,8 @@ sensor:
     id: daily_energy_import_l3
     register_type: holding
     address: 45115
+    icon: mdi:Numeric3Box
     unit_of_measurement: "kWh"
-    device_class: energy
     value_type: FP32
     accuracy_decimals: 3
     
@@ -249,8 +295,8 @@ sensor:
     id: voltage_avg
     register_type: holding
     address: 3035
+    icon: mdi:SineWave
     unit_of_measurement: "V"
-    device_class: energy
     value_type: FP32
     accuracy_decimals: 0
     
@@ -260,8 +306,8 @@ sensor:
     id: frequency
     register_type: holding
     address: 3109
+    icon: mdi:SineWave
     unit_of_measurement: "Hz"
-    device_class: energy
     value_type: FP32
     accuracy_decimals: 0
     
@@ -274,7 +320,6 @@ sensor:
     # Alternative to the custom_command
     register_type: holding
     address: 7273
-    device_class: energy
     value_type: U_WORD
   
   - platform: modbus_controller
@@ -295,7 +340,6 @@ sensor:
     # has been reset correctly.
     register_type: holding
     address: 5375
-    device_class: energy
     value_type: U_WORD
     
   - platform: modbus_controller
@@ -312,5 +356,4 @@ sensor:
     # command 2020 in register 5250: 0x07E4
     # command parameters in register 5252: 0x000 (this command has no parameters)
     custom_command: [ 0x01, 0x10, 0x14, 0x81, 0x00, 0x02, 0x04, 0x07, 0xE4, 0x00, 0x00 ]
-    device_class: energy
     value_type: FP32
