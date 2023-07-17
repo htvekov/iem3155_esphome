@@ -13,7 +13,14 @@
 
 This repo contains my production configuration and serves as a complete ESPHome example for the iEM3155 Energy Meter.
 
-Extremely easy, full Home Assistant integration using ESPHome as wireless Modbus node. 
+Extremely easy, full Home Assistant integration using ESPHome as wireless Modbus node.
+
+## iEM3155 ESPHome sensor overview:
+![iEM3155 ESPHome sensors](https://github.com/htvekov/iem3155_esphome/blob/main/iem3155_sensors.PNG)
+
+## iEM3155 device configuration:
+* Serial: 19200, EVEN, 1 (default)
+* Slave address: 0x01
 
 > ***Note***
 > 
@@ -21,10 +28,6 @@ Extremely easy, full Home Assistant integration using ESPHome as wireless Modbus
 >
 > Otherwise partial reset of daily energy import registers will be *IGNORED* by the device (id: daily_energy_import_total + 3 x daily_energy_import_lX)
 
-## iEM3155 device configuration:
-* Serial: 19200, EVEN, 1 (default)
-* Slave address: 0x01
-   
 ## ESP8266 module:
 [Wemos D1 Mini v3](https://www.aliexpress.com/item/32845253497.html)
 
