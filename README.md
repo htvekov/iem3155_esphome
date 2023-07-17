@@ -7,7 +7,7 @@
    * Improved documentation
    * Code revised to be more resilient to reboots (not power cycles)
    * Solar export total base value is now retained in RTC memory
-   * Added two more sensors:
+   * Added two more (calculated) sensors. These rely on values from my solar inverter via two Home Assistant sensors 
       * Daily solar power self-consumption
       * Daily solar power export total 
 
