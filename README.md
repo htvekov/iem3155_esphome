@@ -31,7 +31,10 @@ Extremely easy, full Home Assistant integration using ESPHome as wireless Modbus
 ![Wemos D1 Mini v3](https://github.com/htvekov/iem3155_esphome/blob/main/Wemos_D1_Mini_v3.png)
 
 ## RS485 modbus module
-[XY-017](https://www.aliexpress.com/item/1005002863807590.html) 'Noname' AliExpress RS485 module
+* [XY-017](https://www.aliexpress.com/item/1005002863807590.html) 'Noname' AliExpress TTL <--> RS485 module
+* Simple, cheap module
+* Supports both 3.3 and 5v
+* 'No hazzle' hardware automatic flow control
 ![XY-017 TTL/RS485 module](https://github.com/htvekov/iem3155_esphome/blob/main/XY-017.png)
 
 The devide also offers some additional interesting features that might be useful for others. Tariff/tariff rates and overload alarm. There's also both a digital input and output port that can be utilized as well.
