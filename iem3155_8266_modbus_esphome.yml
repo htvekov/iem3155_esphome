@@ -33,18 +33,18 @@ esphome:
       - delay: 10s
       - lambda: |-
           if (id(daily_export_base) == -1) {
-            id(daily_export_base) = id(total_export).state;
+            id(daily_export_base) = id(total_energy_export_total).state;
           }
       - component.update: daily_energy_export_total
 
 globals:
-  # Enable variable restore in RTC memory (ESP8266 only)
-  # Variable will not survive a power cycle, only reboots.
+  # Enable variable restore from RTC memory (ESP8266 only)
+  # Daily export base variable will not survive a power cycle, only reboots.
   - id: daily_export_base
     type: float
     restore_value: yes
     initial_value: '-1'
-  
+
 # Enable logging
 logger:
 
@@ -71,7 +71,6 @@ wifi:
 
 captive_portal:
 
-# Optional ESPHome web server
 web_server:
   port: 80
 
@@ -79,18 +78,21 @@ time:
   - platform: homeassistant
     id: esptime
   - platform: sntp
-    # Reset daily export counter and daily export base value at midnight
-    # Also force the command_result id to be updated
-    # Check could be performed on command_result sensor
-    # 0 = valid operation (reset all partial registers - ok)
-    # 3000 = invalid operation (reset all partial registers - nok) )
     on_time:
+      # Reset all four daily import counters at midnight
+      # This will also force the command_result id to be updated
+      # Validation check could be performed on command_result sensor
+      # 0 = valid operation (reset all partial registers - ok)
+      # 3000 = invalid operation (reset all partial registers - nok) )
       - seconds: 59
         minutes: 59
         hours: 23
         days_of_week: MON-SUN
         then:
           - component.update: iem3155_daily
+      # Reset daily export base value at midnight
+      # The iEM3155 unfortunately doesn't provide a partial export value register
+      # Instead value is calculated using the total export register and export base value is reset at midnight
       - seconds: 00
         minutes: 00
         hours: 00
@@ -98,7 +100,7 @@ time:
         then:
           - component.update: iem3155
           - lambda: |-
-              id(daily_export_base) = id(total_export).state;
+              id(daily_export_base) = id(total_energy_export_total).state;
           - component.update: daily_energy_export_total
 
 binary_sensor:
@@ -106,7 +108,6 @@ binary_sensor:
     name: "Energy Meter Status"
     id: system_status
 
-#Software serial UART pin definition 
 uart:
   id: mod_bus
   rx_pin: 4 # D2
@@ -114,7 +115,8 @@ uart:
   baud_rate: 19200
   parity: EVEN
   stop_bits: 1
-  debug:
+  # Optional debug parameter if rx/tx uart hex data is needed for debugging  
+  #debug:
 
 modbus:
   id: modbus1
@@ -123,28 +125,25 @@ modbus_controller:
   - id: iem3155
     address: 0x1
     modbus_id: modbus1
-    # update almost all energy sensors every minute
+    # Update all, but Total Active, energy sensors every minute
     update_interval: 60s
     
   - id: iem3155_freq
     address: 0x1
     modbus_id: modbus1
-    # update Total Active Energy sensor frequently (10 seconds interval)
+    # Update Total Active Energy sensor frequently (10 seconds interval)
     update_interval: 10s  
   
   - id: iem3155_daily
     address: 0x1
     modbus_id: modbus1
     # No interval sensor update !
-    # Only custom_command sensor is using this id
+    # Only custom_command sensor is using this id (once daily at midnight)
     update_interval: never  
     
 sensor:
-  - platform: homeassistant
-    id: total_export
-    entity_id: sensor.energy_export_total
-    internal: true
-
+  # Solar inverter sensor value for daily yield
+  # Sensor needed for optional calculated  
   - platform: homeassistant
     id: daily_yield
     entity_id: sensor.solar_daily_yield
@@ -158,16 +157,18 @@ sensor:
     device_class: energy
     unit_of_measurement: "kWh"
     accuracy_decimals: 3
-    # In lambda check for initial export base value.
-    # Do not calculate daily export value if initial value is set. Instead return -1.
+    # In lambda check for initial export base variable value (-1)
+    # Do not calculate daily export value if initial value is set. Instead return -1
     lambda: |-
       if (id(daily_export_base) == -1) {
         return -1;
       } else {
-        return (id(total_export).state - id(daily_export_base));
+        return (id(total_energy_export_total).state - id(daily_export_base));
       }
     update_interval: 60s
-    
+
+  # Optional daily home consumption sensor
+  # Value is calculated using solar daily yield sensor from HA    
   - platform: template
     id: daily_solar_consumption_total
     name: "Daily Solar Consumption Total"
@@ -287,7 +288,6 @@ sensor:
     id: daily_energy_import_l1
     register_type: holding
     address: 45111
-    icon: mdi:Numeric1Box
     unit_of_measurement: "kWh"
     value_type: FP32
     accuracy_decimals: 3
@@ -298,7 +298,6 @@ sensor:
     id: daily_energy_import_l2
     register_type: holding
     address: 45113
-    icon: mdi:Numeric2Box
     unit_of_measurement: "kWh"
     value_type: FP32
     accuracy_decimals: 3
@@ -309,7 +308,6 @@ sensor:
     id: daily_energy_import_l3
     register_type: holding
     address: 45115
-    icon: mdi:Numeric3Box
     unit_of_measurement: "kWh"
     value_type: FP32
     accuracy_decimals: 3
@@ -360,9 +358,9 @@ sensor:
     
     # This register returns 0 if daily import registers has been
     # reset correctly at midnight. Returns 3000 if device has
-    # Com.Protection enabled.
+    # Com.Protection enabled
     # Sensor can be checked in HA to ensure partial counters
-    # has been reset correctly.
+    # has been reset correctly
     register_type: holding
     address: 5375
     value_type: U_WORD
