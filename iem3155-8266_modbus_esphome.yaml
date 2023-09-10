@@ -44,8 +44,8 @@ substitutions:
   ha_api_key: !secret api_key
   ap_password: !secret wifi_ap_password
   ota_password: !secret iem3155_ota_password
-  uart_tx: "4" #D2
-  uart_rx: "5" #D1
+  uart_tx: "5" #D1
+  uart_rx: "4" #D2
   HA_solar_daily_yield_sensor: sensor.solivia_solar_daily_yield
 
 
@@ -89,8 +89,7 @@ globals:
 
 
 uart:
-  # Pins are by mistake actually swapped in production
-  # TX should be gpio5 (D1) and RX gpio4 (D2)
+  # TX gpio5 (D1) and RX gpio4 (D2)
   id: mod_bus
   tx_pin: ${uart_tx}
   rx_pin: ${uart_rx}
