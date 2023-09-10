@@ -250,7 +250,6 @@ sensor:
   - platform: template
     id: daily_energy_export_total
     name: "Daily Energy Export Total"
-    # Use of device_class will override icon choice here
     icon: mdi:transmission-tower-import
     device_class: energy
     unit_of_measurement: "kWh"
