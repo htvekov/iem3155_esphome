@@ -21,7 +21,7 @@ This repo contains my production configuration and serves as a complete ESPHome 
 Extremely easy, full Home Assistant integration using ESPHome as wireless Modbus node.
 
 ## iEM3155 ESPHome sensors exposed to Home Assistant:
-![iEM3155 ESPHome HA sensors](https://github.com/htvekov/iem3155_esphome/blob/main/iem3155_HA_sensors.PNG)
+![iEM3155 ESPHome HA sensors](https://github.com/htvekov/iem3155_esphome/blob/main/iem3155_HA_sensors.PNG)![iEM3155 ESPHome HA diagnostic sensors](https://github.com/htvekov/iem3155_esphome/blob/main/iem3155_HA_sensors1.PNG)
 
 ## iEM3155 device configuration:
 * Serial: 19200, EVEN, 1 (default)
