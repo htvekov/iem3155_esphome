@@ -6,7 +6,7 @@
 - **v1.2** (2023-09-08)
    * Further code revisions to avoid wrong initial values on reboots (not power cycles)
    * Minor fixes
-     * Substitutions, icons, diagnotic sensors etc.
+     * Substitutions, icons, diagnostic sensors etc.
 
 - **v1.1** (2023-07-17)
    * Improved documentation
@@ -20,7 +20,7 @@ This repo contains my production configuration and serves as a complete ESPHome 
 
 Extremely easy, full Home Assistant integration using ESPHome as wireless Modbus node.
 
-## iEM3155 ESPHome Home Assistant sensor overview:
+## iEM3155 ESPHome sensors exposed to Home Assistant:
 ![iEM3155 ESPHome HA sensors](https://github.com/htvekov/iem3155_esphome/blob/main/iem3155_HA_sensors.PNG)
 
 ## iEM3155 device configuration:
