@@ -1,0 +1,532 @@
+# ***************************************
+# *      ESPHome Modbus config for      *
+# *   Schneider iEM3155 Energy Meter    *
+# *             2023-09-08              *
+# *   v1.2 - Various bug fixes:         *
+# *   - Initial register values fix     *
+# *   - daily_export_base from RTC      *
+# *     memory on reboots (not PC)      *
+# *   - Various minor fixes             *
+# ***************************************
+#
+# My iEM3155 config:
+#
+# Serial: 19200, EVEN, 1 (default)
+# Slave address: 0x01
+# Ensure that Com.Protection in the device is DISABLED !!
+# Com.Protected is ENABLED by default !!
+# Otherwise partial reset of daily energy import registers will be ignored
+# by the device (id: daily_energy_import_total + 3 x daily_energy_import_lX)
+#
+# The devide also offers some additional interesting features that
+# might be useful for others. Tariff/tariff rates and overload alarm.
+# There's also both a digital input and output port that can be utilized
+# as well.
+# Check the iEM3155 user manual/technical datasheet for further info:
+# https://download.schneider-electric.com/files?p_Doc_Ref=DOCA0005EN&p_enDocType=User+guide&p_File_Name=DOCA0005EN-13.pdf
+
+
+#############################################
+#   Substitutions section contains all the  #
+# user/device specific configurable details #
+#############################################
+substitutions:
+  devicename: iem3155-8266 
+  friendly_name: iEM3155
+  device_description: Schneider iEM3155 Energy Meter
+  platform: ESP8266
+  board: d1_mini
+  wifi: !secret wifi_ssid_tp
+  password: !secret wifi_password_tp
+  ip: !secret static_ip_iem3155
+  subnet: 255.255.255.0
+  gateway: !secret gateway
+  ha_api_key: !secret api_key
+  ap_password: !secret wifi_ap_password
+  ota_password: !secret iem3155_ota_password
+  uart_tx: "4" #D2
+  uart_rx: "5" #D1
+  HA_solar_daily_yield_sensor: sensor.solivia_solar_daily_yield
+
+
+###############################################
+#               Main YAML block               #
+# You should not need to edit below this line #
+###############################################
+esphome:
+  name: ${devicename}
+  friendly_name: ${friendly_name}
+  comment: ${device_description}
+  platform: ${platform}
+  board: ${board}
+  # If daily_export_base value has not been retained on reboot (e.g. device power cycle)
+  # then wait for 20 seconds after api connection and set value to current total export value  
+  on_boot:
+    priority: -100
+    then:
+      - wait_until:
+          api.connected:
+      - delay: 20s
+      - lambda: |-
+          if (id(daily_export_base) == -1) {
+            id(daily_export_base) = id(total_energy_export_total).state;
+          }
+      # Fix to prevent initial extreme random register value (six figures) being reported as power_total value on reboots/power cycles
+      # Bug in modbus module or... ?
+      # Initial interval is set to 'never' for modbus controller id(iem3155_freq)
+      - lambda:
+          id(iem3155_freq).set_update_interval(10000);
+          id(iem3155_freq).call_setup(); 
+
+
+globals:
+  # Enable variable restore from RTC memory (ESP8266 only)
+  # Daily export base variable will not survive a power cycle, only reboots
+  - id: daily_export_base
+    type: float
+    restore_value: yes
+    initial_value: '-1'
+
+
+uart:
+  # Pins are by mistake actually swapped in production
+  # TX should be gpio5 (D1) and RX gpio4 (D2)
+  id: mod_bus
+  tx_pin: ${uart_tx}
+  rx_pin: ${uart_rx}
+  baud_rate: 19200
+  parity: EVEN
+  stop_bits: 1
+  # Optional debug parameter if TX/TX UART hex data is needed for debugging  
+  #debug: 
+
+
+# Enable logging
+# Set baud_rate to 0 if you're using hw UART, in order to disable logging via UART pins
+logger:
+  baud_rate: 0
+#  level: VERBOSE
+  
+
+# Enable Home Assistant API
+#key: "c1lAMMlJXPg9+kFJbmc9T5FJ2N1A9K8OUhLmfzG/pww="
+api:
+  encryption:
+    key: ${ha_api_key}
+
+
+ota:
+  password: ${ota_password}
+
+
+wifi:
+  ssid: ${wifi}
+  password: ${password}
+  fast_connect: true
+  manual_ip:
+    static_ip: ${ip}
+    gateway: ${gateway}
+    subnet: ${subnet}
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: ${friendly_name} Fallback Hotspot
+    password: ${ap_password}
+
+captive_portal:
+
+
+#web_server:
+#  port: 80
+
+
+time:
+  - platform: homeassistant
+    id: esptime
+  - platform: sntp
+    on_time:
+      # Reset all four daily import counters at midnight (minus 1 second)
+      # This will also force the command_result id to be updated
+      # Validation check could be performed on command_result sensor
+      # 0 = valid operation (reset all partial registers - ok)
+      # 3000 = invalid operation (reset all partial registers - nok) )
+      - seconds: 59
+        minutes: 59
+        hours: 23
+        days_of_week: MON-SUN
+        then:
+          - component.update: iem3155_daily
+  
+      # Reset daily export base value at midnight
+      # The iEM3155 unfortunately doesn't provide a partial export value register
+      # Instead value is calculated using the total export register and export base value is reset at midnight
+      - seconds: 00
+        minutes: 00
+        hours: 00
+        days_of_week: MON-SUN
+        then:
+          # Set daily_yield sensor to zero at midnight and reset daily_export_base for next day
+          # Can't force an update from HA at 00:00:00 -> 'Old' daily_yield value could potentially result in updating daily_solar_consumption_total with wrong value
+          # Force update both template id sensors that are calculates values (not modbus sensors)
+          # Force update remaining modbus sensors (60 seconds interval)
+          - lambda: |-
+              id(daily_yield).publish_state(0);
+              id(daily_export_base) = id(total_energy_export_total).state;
+              id(daily_energy_export_total).update();
+              id(daily_solar_consumption_total).update();
+          - component.update: iem3155
+
+
+modbus:
+  id: modbus1
+
+
+modbus_controller:
+  - id: iem3155
+    address: 0x1
+    modbus_id: modbus1
+    # Update all, but Total Active, energy sensors every minute
+    update_interval: 60s
+    
+  - id: iem3155_freq
+    address: 0x1
+    modbus_id: modbus1
+    # Update Total Active Energy sensor frequently (10 seconds interval)
+    # Initial update_interval set to 'never' to prevent invalid register values pushed to HA on device reboots/power cycles
+    # update_interval will be set to 10 sec. 
+    update_interval: never  
+  
+  - id: iem3155_daily
+    address: 0x1
+    modbus_id: modbus1
+    # No interval sensor update !
+    # Only custom_command sensor is using this id (once daily at midnight)
+    update_interval: never  
+
+
+binary_sensor:
+  # Optional sensor - Device status sensor
+  - platform: status
+    name: "Node Status"
+    id: system_status
+
+  - platform: template
+    name: "Digital input control mode"
+    id: digital_input_bool
+    icon: mdi:toggle-switch-outline
+    # This binary sensor returns 'true' if device partial energy readings
+    # can be reset via digital input pins (12-40v dc pulse)
+    # Alternative to the modbus custom_command
+    lambda: |-
+      if (id(digital_input).state == 5) return true; else return false;
+
+sensor:
+  # Optional sensors - Device uptime / Wifi strength db / WiFi strength in percent
+  - platform: uptime
+    name: "Uptime sensor"
+  
+  - platform: wifi_signal
+    id: iem3155_wifi_strength_db
+    name: "WiFi strength db"
+    update_interval: 60s
+    entity_category: "diagnostic"
+
+  - platform: copy # Reports the WiFi signal strength in %
+    source_id: iem3155_wifi_strength_db
+    name: "WiFi strength pct."
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "%"
+    entity_category: "diagnostic"
+
+  # Home Assistant solar inverter daily yield sensor value
+  # Sensor only needed for optional calculated sensor (daily_solar_consumption_total) 
+  - platform: homeassistant
+    id: daily_yield
+    entity_id: ${HA_solar_daily_yield_sensor}
+    internal: true
+    filters:
+      - multiply: 0.001
+
+  - platform: template
+    id: daily_energy_export_total
+    name: "Daily Energy Export Total"
+    icon: mdi:transmission-tower-import
+    device_class: energy
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 3
+    # Check for initial export base variable value (-1)
+    # Do not calculate daily export value if initial value is set. Instead return 0
+    update_interval: 60s
+    lambda: |-
+      if (id(daily_export_base) == -1) {
+        return 0;
+      } else {
+        return (id(total_energy_export_total).state - id(daily_export_base));
+      }
+    
+  # Optional daily own solar consumption sensor
+  # Value is calculated using solar_daily_yield sensor from HA    
+  - platform: template
+    id: daily_solar_consumption_total
+    name: "Daily Solar Consumption Total"
+    icon: mdi:solar-power-variant
+    device_class: energy
+    unit_of_measurement: "kWh"
+    accuracy_decimals: 3
+    update_interval: 60s
+    lambda: |-
+      return (id(daily_yield).state - id(daily_energy_export_total).state);
+
+  # Sensors updated every 60 seconds
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    name: "Voltage avg. All Phases"
+    id: voltage_avg
+    register_type: holding
+    address: 3035
+    icon: mdi:current-ac
+    unit_of_measurement: "V"
+    value_type: FP32
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    name: "L1 Active Power"
+    id: power_l1
+    register_type: holding
+    address: 3053
+    unit_of_measurement: "W"
+    device_class: energy
+    value_type: FP32
+    filters:
+      - multiply: 1000
+    accuracy_decimals: 0
+    
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    name: "L2 Active Power"
+    id: power_l2
+    register_type: holding
+    address: 3055
+    unit_of_measurement: "W"
+    device_class: energy
+    value_type: FP32
+    filters:
+      - multiply: 1000
+    accuracy_decimals: 0
+    
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    name: "L3 Active Power"
+    id: power_l3
+    register_type: holding
+    address: 3057
+    unit_of_measurement: "W"
+    device_class: energy
+    value_type: FP32
+    filters:
+      - multiply: 1000
+    accuracy_decimals: 0
+    
+  # Sensor updated every 10 seconds 
+  - platform: modbus_controller
+    modbus_controller_id: iem3155_freq
+    name: "Total Active Power"
+    id: power_total
+    register_type: holding
+    address: 3059
+    unit_of_measurement: "W"
+    device_class: energy
+    value_type: FP32
+    filters:
+      - multiply: 1000
+    accuracy_decimals: 0
+   
+  # Sensors updated every 60 seconds
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    name: "Power Factor"
+    id: power_factor
+    register_type: holding
+    address: 3083
+    icon: mdi:power-settings
+    value_type: FP32
+    accuracy_decimals: 2
+    ## Possible float values from: -2 to +1
+    
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    name: "Frequency"
+    id: frequency
+    register_type: holding
+    address: 3109
+    icon: mdi:sine-wave
+    unit_of_measurement: "Hz"
+    value_type: FP32
+    accuracy_decimals: 2
+
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    id: digital_input
+    # Don't expose register to HA. Binary digital_input_bool is exposed instead
+    internal: true
+    # This register returns 5 if device partial energy readings
+    # can be reset via digital input pins (12-40v dc pulse)
+    # Alternative to the custom_command
+    register_type: holding
+    address: 7273
+    value_type: U_WORD
+
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    name: "Energy Import Total"
+    id: total_energy_import_total
+    register_type: holding
+    address: 45099
+    icon: mdi:transmission-tower-export
+    unit_of_measurement: "kWh"
+    device_class: energy
+    # Set state_class in order for HA to use sensor in the Energy component
+    state_class: total_increasing
+    value_type: FP32
+    accuracy_decimals: 3
+    
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    name: "Energy Export Total"
+    id: total_energy_export_total
+    register_type: holding
+    address: 45101
+    icon: mdi:transmission-tower-import
+    unit_of_measurement: "kWh"
+    device_class: energy
+    # Set state_class in order for HA to use sensor in the Energy component
+    state_class: total_increasing
+    value_type: FP32
+    accuracy_decimals: 3 
+   
+    # Partial energy register used here as daily energy import sensor
+    # Will be reset at midnight by custom_command
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    name: "Daily Energy Import Total"
+    id: daily_energy_import_total
+    register_type: holding
+    address: 45107
+    icon: mdi:lightning-bolt-circle
+    unit_of_measurement: "kWh"
+    device_class: energy
+    # Set state_class in order for HA to use sensor in the Energy component
+    state_class: total_increasing 
+    value_type: FP32
+    accuracy_decimals: 3
+    
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    name: "Daily Energy Import Phase 1"
+    id: daily_energy_import_l1
+    register_type: holding
+    address: 45111
+    icon: mdi:lightning-bolt-circle
+    unit_of_measurement: "kWh"
+    value_type: FP32
+    accuracy_decimals: 3
+    
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    name: "Daily Energy Import Phase 2"
+    id: daily_energy_import_l2
+    register_type: holding
+    address: 45113
+    icon: mdi:lightning-bolt-circle
+    unit_of_measurement: "kWh"
+    value_type: FP32
+    accuracy_decimals: 3
+
+  - platform: modbus_controller
+    modbus_controller_id: iem3155
+    name: "Daily Energy Import Phase 3"
+    id: daily_energy_import_l3
+    register_type: holding
+    address: 45115
+    icon: mdi:lightning-bolt-circle
+    unit_of_measurement: "kWh"
+    value_type: FP32
+    accuracy_decimals: 3
+    
+  # Sensors updated at midnight 
+  - platform: modbus_controller
+    modbus_controller_id: iem3155_daily
+    name: "Command result"
+    id: command_result
+    # Command Result codes:
+    # 0 = Valid Operation
+    # 3000 = Invalid Command
+    # 3001 = Invalid Parameter
+    # 3002 = Invalid Number of Parameters
+    # 3007 = Operation Not Performed
+    
+    # This register returns 0 if daily import registers has been
+    # reset correctly at midnight. Returns 3000 if device has
+    # Com.Protection enabled
+    # Sensor can be checked in HA to ensure partial counters
+    # has been reset correctly
+    register_type: holding
+    address: 5375
+    icon: mdi:restart
+    value_type: U_WORD
+    
+  - platform: modbus_controller
+    modbus_controller_id: iem3155_daily
+    name: "Reset command"
+    id: reset_partial
+    internal: true
+    # custom_command to reset all partial energy readings just before midnight
+    # Sensor value can't be used as result value. That has to be checked via command_result sensor
+    # device slave address: 0x01
+    # modbus command 16: 0x10
+    # commmand register 5250 decimal: 0x1481 
+    # number of registers to write: 0x0002 (write both command and command parameters registers)
+    # number of bytes: 0x04 (2 parameters x 2 bytes)
+    # command 2020 in register 5250: 0x07E4
+    # command parameters in register 5252: 0x000 (this command has no parameters)
+    custom_command: [ 0x01, 0x10, 0x14, 0x81, 0x00, 0x02, 0x04, 0x07, 0xE4, 0x00, 0x00 ]
+    value_type: FP32
+
+  #- platform: modbus_controller
+  #  modbus_controller_id: iem3155_freq
+  #  name: "test"
+  #  id: test
+    # custom_command to reset all partial energy readings just before midnight
+    # Sensor value can't be used as result value. That has to be checked via command_result sensor
+    # device slave address: 0x01
+    # modbus command 16: 0x10
+    # commmand register 5250 decimal: 0x1481 
+    # number of registers to write: 0x0002 (write both command and command parameters registers)
+    # number of bytes: 0x04 (2 parameters x 2 bytes)
+    # command 2020 in register 5250: 0x07E4
+    # command parameters in register 5252: 0x000 (this command has no parameters)
+  #  custom_command: [ 0x01, 0x10, 0x14, 0x81, 0x00, 0x16, 0x2C, 0x1b, 0x58, 0xFF, 0xFF, 0x00, 0x08, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x01, 0x01, 0x02, 0x03, 0x04, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF ]
+  #  device_class: energy
+  #  value_type: FP32
+  
+  #- platform: modbus_controller
+  #  modbus_controller_id: iem3155_freq
+  #  name: "test 1"
+  #  id: test1
+    # Command Result codes:
+    # 0 = Valid Operation
+    # 3000 = Invalid Command
+    # 3001 = Invalid Parameter
+    # 3002 = Invalid Number of Parameters
+    # 3007 = Operation Not Performed
+    
+    # This register returns 0 if daily import registers has been
+    # reset correctly at midnight. Returns 3000 if device has
+    # Com.Protection enabled.
+    # Sensor can be checked in HA to ensure partial counters
+    # has been reset correctly.
+  #  register_type: holding
+  #  address: 5376
+  #  device_class: energy
+  #  value_type: U_WORD
