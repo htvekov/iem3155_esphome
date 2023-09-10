@@ -1,8 +1,13 @@
-# ESPHome Modbus configuration for Schneider iEM3155 Energy Meter v1.1
+# ESPHome Modbus configuration for Schneider iEM3155 Energy Meter v1.2
 
 ![iem3155](https://github.com/htvekov/iem3155_esphome/blob/main/iem3155.png)
 
 ### Revision:
+- **v1.2** (2023-09-08)
+   * Further code revisions to avoid wrong initial values on reboots (not power cycles)
+   * Minor fixes
+     * Substitutions, icons, diagnotic sensors etc.
+
 - **v1.1** (2023-07-17)
    * Improved documentation
    * Added two additional (calculated) sensors. The daily solar power self-consumption sensor rely on daily yield value from my solar inverter via a Home Assistant sensor 
