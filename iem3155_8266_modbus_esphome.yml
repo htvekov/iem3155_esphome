@@ -278,6 +278,7 @@ sensor:
     lambda: |-
       return (id(daily_yield).state - id(daily_energy_export_total).state);
 
+  # Sensors updated every 60 seconds
   - platform: modbus_controller
     modbus_controller_id: iem3155
     name: "Voltage avg. All Phases"
@@ -328,7 +329,6 @@ sensor:
       - multiply: 1000
     accuracy_decimals: 0
     
-
   # Sensor updated every 10 seconds 
   - platform: modbus_controller
     modbus_controller_id: iem3155_freq
@@ -343,7 +343,6 @@ sensor:
       - multiply: 1000
     accuracy_decimals: 0
    
-
   # Sensors updated every 60 seconds
   - platform: modbus_controller
     modbus_controller_id: iem3155
